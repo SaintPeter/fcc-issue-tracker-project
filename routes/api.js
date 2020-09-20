@@ -21,24 +21,44 @@ mongoose.set('useCreateIndex', true);
 
 const CONNECTION_STRING = process.env.DB; //MongoClient.connect(CONNECTION_STRING, function(err, db) {});
 
+const updatable_fields = [
+  "issue_title",
+  "issue_text",
+  "created_by",
+  "assigned_to",
+  "status_text",
+  "open"
+]
+
+const field_list = updatable_fields.concat([
+  "_id",
+  "created_on",
+  "updated_on"
+]);
+
 module.exports = function (app) {
 
   app.route('/api/issues/:project')
-  
+
     .get(function (req, res){
       var project = req.params.project;
 
-      console.log('/api/issues/' + project);
-      IssueModel.find({ project: project }, (err, docs) => {
-        console.log("Docs Found: ",docs.length)
+      // Build Query
+      let query = { project: project };  // We always filter by project
+      field_list.forEach(field => {
+        if(req.query.hasOwnProperty(field)) {
+          query[field] = req.query[field];
+        }
+      })
+
+      IssueModel.find(query, (err, docs) => {
         return res.json(docs);
       })
     })
-    
+
     .post(function (req, res){
       let project = req.params.project;
 
-      console.log("Post to Project: " + project);
       // check required fields
       let missing_fields = ['issue_title', 'issue_text', 'created_by']
         .filter( field => !req.body.hasOwnProperty(field))
@@ -59,22 +79,65 @@ module.exports = function (app) {
       });
 
       issue.save(function(err, result) {
-        console.log("Saved");
         if(err) { console.log(err) }
-        console.log("Doc Written:",result.toJSON);
         res.json(result.toJSON());
       })
 
     })
-    
+
     .put(function (req, res){
-      var project = req.params.project;
-      
+      let project = req.params.project;
+      let id = req.body._id;
+
+      // No id passed
+      if(!id) {
+        return res.send('_id error')
+      }
+
+      // Build update object
+      let update = {};
+      let count = 0;
+      updatable_fields.forEach(field => {
+        if(req.body.hasOwnProperty(field)) {
+          update[field] = req.body[field];
+          count++;
+        }
+      })
+
+      if(!count) {
+        return res.send('no updated field sent')
+      }
+
+      IssueModel.updateOne({ project, _id: id }, update, (err, result) => {
+        if(err) console.log(err);
+
+        // id not found
+        if(result.nModified === 0 || result.n === 0) {
+          return res.send('could not update ' + id);
+        }
+
+        // Success!
+        res.send('successfully updated')
+      });
     })
-    
+
     .delete(function (req, res){
-      var project = req.params.project;
-      
+      let project = req.params.project;
+      let id = req.body._id;
+
+      // No id passed
+      if(!id) {
+        return res.send('_id error')
+      }
+
+      IssueModel.deleteOne({ project, '_id': id })
+        .then(result => {
+          if(result.deletedCount === 1) {
+            return res.send('deleted ' + id);
+          } else {
+            return res.send('could not delete ' + id);
+          }
+        });
     });
-    
-};
+
+}
